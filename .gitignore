@@ -1,0 +1,14 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Node
+research-frontend/node_modules/
