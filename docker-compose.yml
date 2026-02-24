@@ -1,0 +1,49 @@
+version: "3.8"
+
+services:
+  backend:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - LLM_PROVIDER=ollama
+      - LLM_MODEL=llama3.1:8b
+      - OLLAMA_HOST=http://ollama:11434
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - CHROMA_PERSIST_DIR=/data/chroma_memory
+    volumes:
+      - chroma_data:/data/chroma_memory
+      - db_data:/app/data
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  frontend:
+    build: ./research-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  chroma_data:
+  db_data:
+  ollama_data:

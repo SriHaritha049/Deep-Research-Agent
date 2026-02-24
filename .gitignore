@@ -12,3 +12,9 @@ __pycache__/
 
 # Node
 research-frontend/node_modules/
+
+# ChromaDB
+chroma_memory/
+
+# Generated PDFs
+report_*.pdf

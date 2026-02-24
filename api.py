@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fpdf import FPDF
 import os
 from typing import Optional
+from memory import store_research_memory
 
 
 api = FastAPI(title="Deep Research Agent")
@@ -41,6 +42,7 @@ history_db.execute("""
         role TEXT,
         content TEXT,
         message_type TEXT,
+        summary TEXT,
         created_at TIMESTAMP
     )
 """)
@@ -68,21 +70,26 @@ def save_to_history(thread_id, result):
     )
     history_db.commit()
 
-def save_message(thread_id, role, content, message_type="chat"):
+def save_message(thread_id, role, content, message_type="chat", summary=None):
     history_db.execute(
-        "INSERT INTO messages (thread_id, role, content, message_type, created_at) VALUES (?, ?, ?, ?, ?)",
-        (thread_id, role, content, message_type, datetime.now().isoformat())
+        "INSERT INTO messages (thread_id, role, content, message_type, summary, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (thread_id, role, content, message_type, summary, datetime.now().isoformat())
     )
     history_db.commit()
 
 def load_messages(thread_id):
     cursor = history_db.execute(
-        "SELECT role, content, message_type FROM messages WHERE thread_id = ? ORDER BY created_at",
+        "SELECT role, content, message_type, summary FROM messages WHERE thread_id = ? ORDER BY created_at",
         (thread_id,)
     )
     messages = []
     for row in cursor.fetchall():
-        messages.append({"role": row[0], "content": row[1], "message_type": row[2]})
+        messages.append({
+            "role": row[0],
+            "content": row[1],
+            "message_type": row[2],
+            "summary": row[3]
+        })
     return messages
 
 
@@ -110,6 +117,7 @@ def chat_stream(request: ChatRequest):
             {
                 "query": request.message,
                 "messages": messages,
+                "conversation_summary": "",
                 "current_response": "",
                 "needs_research": False,
                 "sub_topics": [],
@@ -135,7 +143,7 @@ def chat_stream(request: ChatRequest):
 
         # Determine what to save
         if final_result.get("needs_research") and final_result.get("report"):
-            # Research path — save report as assistant message
+            # Research path — save report as assistant message with summary
             seen_urls = set()
             unique_sources = []
             for s in all_sources:
@@ -143,7 +151,11 @@ def chat_stream(request: ChatRequest):
                     seen_urls.add(s["url"])
                     unique_sources.append(s)
 
-            save_message(thread_id, "assistant", final_result["report"], "research_report")
+            report_summary = final_result.get("conversation_summary")
+            save_message(thread_id, "assistant", final_result["report"], "research_report", summary=report_summary)
+
+            # Store in long-term memory
+            store_research_memory(final_result["report"], request.message, thread_id)
 
             final_result["query"] = request.message
             final_result["sources"] = unique_sources
@@ -206,47 +218,47 @@ def download_pdf(thread_id: str):
     row = cursor.fetchone()
     if not row:
         return {"error": "Session not found"}
-    
+
     query = row[0]
     sub_topics = json_lib.loads(row[1])
     sources = json_lib.loads(row[2])
     report = row[3]
-    
+
     clean_report = report.replace("**", "").replace("*", "").replace("#", "")
-    
+
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(20, 20, 20)
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=20)
-    
+
     def write_text(text, size=11, style="", align="L"):
         pdf.set_x(20)
         pdf.set_font("Helvetica", style, size)
         safe_text = text.encode("latin-1", errors="replace").decode("latin-1")
         pdf.multi_cell(0, 7, safe_text, align=align)
-    
+
     write_text("Deep Research Agent Report", size=18, style="B", align="C")
     pdf.ln(8)
-    
+
     write_text("Research Question:", size=12, style="B")
     write_text(query)
     pdf.ln(6)
-    
+
     write_text("Sub-topics Investigated:", size=12, style="B")
     for topic in sub_topics:
         write_text(f"- {topic}")
     pdf.ln(6)
-    
+
     write_text("Report:", size=12, style="B")
     report_parts = clean_report.split("References:")
     main_report = report_parts[0]
-    
+
     for paragraph in main_report.split("\n"):
         paragraph = paragraph.strip()
         if paragraph:
             write_text(paragraph)
             pdf.ln(3)
-    
+
     if len(sources) > 0:
         pdf.ln(4)
         write_text("References:", size=12, style="B")
@@ -265,10 +277,10 @@ def download_pdf(thread_id: str):
                 safe_url = display_url.encode("latin-1", errors="replace").decode("latin-1")
                 pdf.multi_cell(0, 5, safe_url)
                 pdf.set_text_color(0, 0, 0)
-    
+
     filepath = f"report_{thread_id[:8]}.pdf"
     pdf.output(filepath)
-    
+
     return FileResponse(filepath, filename="research_report.pdf", media_type="application/pdf")
 
 @api.delete("/history/{thread_id}")

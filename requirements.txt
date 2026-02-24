@@ -1,0 +1,12 @@
+fastapi
+uvicorn
+langgraph
+langchain-ollama
+langchain-openai
+langchain-anthropic
+tavily-python
+python-dotenv
+fpdf
+chromadb
+pydantic
+tiktoken
