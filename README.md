@@ -144,6 +144,4 @@ docker compose exec ollama ollama pull llama3.1:8b
 | `CHROMA_PERSIST_DIR`   | `./chroma_memory` | ChromaDB persistence directory           |
 | `TAVILY_API_KEY`       | —                 | Required. Tavily API key for web search  |
 
-## Screenshots
 
-*Coming soon*
